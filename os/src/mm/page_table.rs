@@ -58,6 +58,10 @@ impl PageTableEntry {
     pub fn is_valid(&self) -> bool {
         (self.flags() & PTEFlags::V) != PTEFlags::empty()
     }
+    /// The page pointered by page table entry is user?
+    pub fn is_user(&self) -> bool {
+        (self.flags() & PTEFlags::U) != PTEFlags::empty()
+    }
     /// The page pointered by page table entry is readable?
     pub fn readable(&self) -> bool {
         (self.flags() & PTEFlags::R) != PTEFlags::empty()

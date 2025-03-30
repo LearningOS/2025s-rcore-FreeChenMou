@@ -14,6 +14,7 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
+use crate::mm::{MapPermission, VirtAddr};
 use crate::loader::{get_app_data, get_num_app};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
@@ -152,6 +153,59 @@ impl TaskManager {
         } else {
             panic!("All applications completed!");
         }
+    }
+
+    pub(crate) fn get_current_syscall(&self, syscall_id: usize) -> u32 {
+        let inner = self.inner.exclusive_access();
+        inner.tasks[inner.current_task].task_sys_count[syscall_id]
+    }
+
+    pub(crate) fn syscall_inc(&self, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let task_id = inner.current_task;
+        inner.tasks[task_id].syscall_inc(syscall_id)
+    }
+
+    /// Map a new memory area for current task.
+    pub fn mmap(&self,start: VirtAddr,end: VirtAddr,permission: MapPermission,) -> Result<(), &str> {
+        let mut inner = self.inner.exclusive_access();
+        let task_id = inner.current_task;
+        let memory_set = &mut inner.tasks[task_id].memory_set;
+
+        let mut next = start.floor();
+        let end2 = end.ceil();
+
+        while next < end2 {
+            if let Some(pte) = memory_set.translate(next) {
+                if pte.is_valid() {
+                    return Err("pte is valid");
+                }
+            }
+            next.0 += 1;
+        }
+        memory_set.insert_framed_area(start, end, permission | MapPermission::U);
+        Ok(())
+    }
+
+    /// Unmap a memory area for current task.
+    pub fn unmap(&self, start: VirtAddr, end: VirtAddr) -> Result<(), &str> {
+        let mut inner = self.inner.exclusive_access();
+        let task_id = inner.current_task;
+        let memory_set = &mut inner.tasks[task_id].memory_set;
+
+        let mut next = start.floor();
+        let end2: crate::mm::VirtPageNum = end.ceil();
+
+        while next < end2 {
+            if let Some(pte) = memory_set.translate(next) {
+                if !pte.is_valid() {
+                    return Err("pte is invalid");
+                }
+            }
+            next.0 += 1;
+        }
+        memory_set.remove_framed_area(start, end);
+        Ok(())
     }
 }
 
