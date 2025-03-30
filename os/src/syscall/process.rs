@@ -1,15 +1,21 @@
 //! Process management syscalls
 use crate::{
-    task::{exit_current_and_run_next, suspend_current_and_run_next},
-    timer::get_time_us,
+    task::{exit_current_and_run_next, suspend_current_and_run_next, TASK_MANAGER}, timer::get_time_us
 };
 
 #[repr(C)]
 #[derive(Debug)]
+
 pub struct TimeVal {
     pub sec: usize,
     pub usec: usize,
 }
+
+const READ:usize=0;
+const WRITE:usize=1;
+const SELECT:usize=2;
+
+
 
 /// task exits and submit an exit code
 pub fn sys_exit(exit_code: i32) -> ! {
@@ -39,7 +45,27 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
 }
 
 // TODO: implement the syscall
-pub fn sys_trace(_trace_request: usize, _id: usize, _data: usize) -> isize {
+pub fn sys_trace(trace_request: usize, id: usize, data: usize) -> isize {
     trace!("kernel: sys_trace");
-    -1
+    
+    match trace_request {
+        READ => {
+            let ra_ptr = id as *const u8;
+            unsafe {*ra_ptr as isize}
+        } 
+        WRITE => {
+            let target_ptr=id as *mut u8;
+            unsafe {*target_ptr=data as u8}
+            0
+        }
+        SELECT => {
+            let task_block=TASK_MANAGER.get_current();
+            task_block.task_sys_count[id] as isize
+        }
+        _ =>{
+            trace!("Unsupported trace request: {}", trace_request);
+            -1
+        }
+    }
+    
 }
