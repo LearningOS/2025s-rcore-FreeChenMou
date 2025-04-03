@@ -180,13 +180,12 @@ impl File for OSInode {
             
             Stat {
                 dev: 0,
-                ino: 0,
+                ino: (disk_inode.size/32) as u64,
                 mode: mode,
                 nlink: disk_inode.nlink,
                 pad: Default::default(),
             }
         });
-        // stat.ine?
         stat
     }
     

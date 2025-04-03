@@ -43,7 +43,7 @@ impl File for Stdin {
     fn stat(&self)->Stat {
         Stat {
             dev: 0,
-            ino: 8,
+            ino: 0,
             mode: StatMode::FILE,
             nlink: 1,
             pad: [0; 7],
@@ -72,7 +72,7 @@ impl File for Stdout {
     fn stat(&self)->Stat {
         Stat {
             dev: 0,
-            ino: 8,
+            ino: 0,
             mode: StatMode::FILE,
             nlink: 1,
             pad: [0; 7],
