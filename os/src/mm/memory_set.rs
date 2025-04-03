@@ -54,6 +54,20 @@ impl MemorySet {
     pub fn token(&self) -> usize {
         self.page_table.token()
     }
+
+     /// Remove a framed area from the memory set.
+     pub fn remove_framed_area(&mut self, start_va: VirtAddr, end_va: VirtAddr) {
+        self.areas.retain_mut(|area| {
+            if area.vpn_range.get_start() == start_va.floor()
+                && area.vpn_range.get_end() == end_va.ceil()
+            {
+                area.unmap(&mut self.page_table);
+                false
+            } else {
+                true
+            }
+        });
+    }
     /// Assume that no conflicts.
     pub fn insert_framed_area(
         &mut self,

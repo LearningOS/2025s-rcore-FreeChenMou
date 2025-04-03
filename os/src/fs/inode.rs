@@ -4,7 +4,7 @@
 //!
 //! `UPSafeCell<OSInodeInner>` -> `OSInode`: for static `ROOT_INODE`,we
 //! need to wrap `OSInodeInner` into `UPSafeCell`
-use super::File;
+use super::{File, Stat, StatMode};
 use crate::drivers::BLOCK_DEVICE;
 use crate::mm::UserBuffer;
 use crate::sync::UPSafeCell;
@@ -62,6 +62,17 @@ lazy_static! {
     };
 }
 
+/// file link a inode 
+pub fn link_file(old_name: &str, new_name: &str)-> Result<(), &'static str> {
+    ROOT_INODE.link_file(old_name, new_name)
+}
+/// file unlink ,if nlink==0 need delete file and drop inode
+pub fn unlink_file(name: &str)-> Result<(), &'static str> {
+    ROOT_INODE.unlink_file(name)
+}
+
+
+
 /// List all apps in the root directory
 pub fn list_apps() {
     println!("/**** APPS ****");
@@ -100,6 +111,8 @@ impl OpenFlags {
         }
     }
 }
+
+
 
 /// Open a file
 pub fn open_file(name: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
@@ -156,4 +169,26 @@ impl File for OSInode {
         }
         total_write_size
     }
+    
+    fn stat(&self)->super::Stat {
+        let inner = self.inner.exclusive_access();
+        let stat=inner.inode.read_disk_inode(|disk_inode| {
+            let mut mode = StatMode::FILE;
+            if disk_inode.is_dir(){
+                mode=StatMode::DIR;
+            }
+            
+            Stat {
+                dev: 0,
+                ino: 0,
+                mode: mode,
+                nlink: disk_inode.nlink,
+                pad: Default::default(),
+            }
+        });
+        // stat.ine?
+        stat
+    }
+    
+
 }

@@ -14,6 +14,8 @@ pub struct Inode {
     block_device: Arc<dyn BlockDevice>,
 }
 
+const IN_VALID_FLAG: usize = 0x7fffffff;
+
 impl Inode {
     /// Create a vfs inode
     pub fn new(
@@ -30,7 +32,7 @@ impl Inode {
         }
     }
     /// Call a function over a disk inode to read it
-    fn read_disk_inode<V>(&self, f: impl FnOnce(&DiskInode) -> V) -> V {
+    pub fn read_disk_inode<V>(&self, f: impl FnOnce(&DiskInode) -> V) -> V {
         get_block_cache(self.block_id, Arc::clone(&self.block_device))
             .lock()
             .read(self.block_offset, f)
@@ -58,6 +60,7 @@ impl Inode {
         }
         None
     }
+
     /// Find inode under current inode by name
     pub fn find(&self, name: &str) -> Option<Arc<Inode>> {
         let fs = self.fs.lock();
@@ -182,5 +185,88 @@ impl Inode {
             }
         });
         block_cache_sync_all();
+    }
+
+    /// file link a inode
+    pub fn link_file(&self, old_name: &str, new_name: &str) -> Result<(), &'static str> {
+        let mut fs = self.fs.lock();
+        let option = |disk_inode: &DiskInode| {
+            // has the file been created?
+            self.find_inode_id(new_name, disk_inode)
+        };
+        if self.read_disk_inode(option).is_some() {
+            return Err("don't operation");
+        }
+        let old_id = self.modify_disk_inode(|disk_inode| self.find_inode_id(old_name, disk_inode));
+        if old_id == None {
+            return Err("files already duplicate");
+        }
+        let old_id = old_id.unwrap();
+        let (old_block_id, old_block_offset) = fs.get_disk_inode_pos(old_id);
+        get_block_cache(old_block_id as usize, self.block_device.clone())
+            .lock()
+            .modify(old_block_offset, |old_inode: &mut DiskInode| {
+                old_inode.nlink += 1
+            });
+        self.modify_disk_inode(|disk_inode| {
+            // append file in the dirent
+            let file_count = (disk_inode.size as usize) / DIRENT_SZ;
+            let new_size = (file_count + 1) * DIRENT_SZ;
+            // increase size
+            self.increase_size(new_size as u32, disk_inode, &mut fs);
+            // write dirent
+            let dirent = DirEntry::new(new_name, old_id);
+            disk_inode.write_at(
+                file_count * DIRENT_SZ,
+                dirent.as_bytes(),
+                &self.block_device,
+            );
+        });
+        block_cache_sync_all();
+        Ok(())
+    }
+    /// file unlink ,if nlink==0 need delete file and drop inode
+    pub fn unlink_file(&self, name: &str) -> Result<(), &'static str> {
+        let Some(path) = self.find(name) else {
+            return Err("file don't exist");
+        };
+        let fs = self.fs.lock();
+        let res = self.modify_disk_inode(|disk_inode| {
+            let file_count = (disk_inode.size as usize) / DIRENT_SZ;
+            let mut index = IN_VALID_FLAG;
+            let mut dirent = DirEntry::empty();
+            for i in 0..file_count {
+                assert_eq!(
+                    disk_inode.read_at(i * DIRENT_SZ, dirent.as_bytes_mut(), &self.block_device,),
+                    DIRENT_SZ,
+                );
+                if name == dirent.name() {
+                    index = i;
+                    break;
+                }
+            }
+            if index == IN_VALID_FLAG {
+                return Err("file not match");
+            }
+            let (old_block_id, old_block_offset) = fs.get_disk_inode_pos(dirent.inode_id());
+            let count = get_block_cache(old_block_id as usize, self.block_device.clone())
+                .lock()
+                .modify(old_block_offset, |inode: &mut DiskInode| {
+                    inode.nlink -= 1;
+                    inode.nlink
+                });
+            disk_inode.write_at(index*DIRENT_SZ, &[0;DIRENT_SZ], &self.block_device);
+            Ok(count)
+        });
+        drop(fs);
+        block_cache_sync_all();
+        match res {
+            Ok(0) => {
+                path.clear();
+                Ok(())
+            }
+            Err(msg) => Err(msg),
+            Ok(_) => Ok(()),
+        }
     }
 }

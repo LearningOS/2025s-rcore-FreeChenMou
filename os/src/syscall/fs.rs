@@ -1,5 +1,5 @@
 //! File and filesystem-related syscalls
-use crate::fs::{open_file, OpenFlags, Stat};
+use crate::fs::{link_file, open_file, unlink_file, OpenFlags, Stat};
 use crate::mm::{translated_byte_buffer, translated_str, UserBuffer};
 use crate::task::{current_task, current_user_token};
 
@@ -76,28 +76,47 @@ pub fn sys_close(fd: usize) -> isize {
 }
 
 /// YOUR JOB: Implement fstat.
-pub fn sys_fstat(_fd: usize, _st: *mut Stat) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_fstat NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+pub fn sys_fstat(fd: usize, st: *mut Stat) -> isize {
+    let task = current_task().unwrap();
+    let inner = task.inner_exclusive_access();
+    let Some(file) = inner.fd_table[fd].clone() else {
+        return -1;
+    };
+    drop(inner);
+    let stat = file.stat();
+    let src_ptr: *const u8 = unsafe { core::mem::transmute(&stat) };
+    let dst_ptr: *const u8 = unsafe { core::mem::transmute(st) };
+    let len = core::mem::size_of::<Stat>();
+
+    let dst_frames = translated_byte_buffer(current_user_token(), dst_ptr, len);
+
+    let mut offset = 0;
+    for dst_frame in dst_frames {
+        dst_frame.copy_from_slice(unsafe {
+            core::slice::from_raw_parts(src_ptr.add(offset), dst_frame.len())
+        });
+        offset += dst_frame.len();
+    }
+    0
 }
 
 /// YOUR JOB: Implement linkat.
-pub fn sys_linkat(_old_name: *const u8, _new_name: *const u8) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_linkat NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+pub fn sys_linkat(old_name: *const u8, new_name: *const u8) -> isize {
+    let token = current_user_token();
+    let old_name = translated_str(token, old_name);
+    let new_name = translated_str(token, new_name);
+    if let Err(_msg) = link_file(&old_name, &new_name) {
+        return -1;
+    }
+    0
 }
 
 /// YOUR JOB: Implement unlinkat.
-pub fn sys_unlinkat(_name: *const u8) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_unlinkat NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+pub fn sys_unlinkat(name: *const u8) -> isize {
+    let token = current_user_token();
+    let path = translated_str(token, name);
+    if let Err(_msg) = unlink_file(&path) {
+        return -1;
+    }
+    0
 }

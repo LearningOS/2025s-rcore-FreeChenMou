@@ -1,5 +1,5 @@
 //!Implementation of [`TaskManager`]
-use super::TaskControlBlock;
+use super::{task, TaskControlBlock};
 use crate::sync::UPSafeCell;
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
@@ -23,7 +23,22 @@ impl TaskManager {
     }
     /// Take a process out of the ready queue
     pub fn fetch(&mut self) -> Option<Arc<TaskControlBlock>> {
-        self.ready_queue.pop_front()
+        let min_task =  self.ready_queue.iter().enumerate().min_by(|(_,i),(_,j)| {
+            let t1=i.inner_exclusive_access().stride;
+            let t2=j.inner_exclusive_access().stride;
+            t1.cmp(&t2)
+        });
+        match min_task {
+            Some(min) =>{
+                let task_block =min.1.clone();
+                self.ready_queue.remove(min.0);
+                let mut task =task_block.inner_exclusive_access();
+                task.stride+=task::BIG_STRIDE/task.priority;
+                drop(task);
+                Some(task_block)
+            },
+            None=>None
+        }
     }
 }
 
