@@ -255,7 +255,7 @@ impl Inode {
                     inode.nlink -= 1;
                     inode.nlink
                 });
-            disk_inode.write_at(index*DIRENT_SZ, &[0;DIRENT_SZ], &self.block_device);
+            self.swap_remove_back(index, file_count, disk_inode);
             Ok(count)
         });
         drop(fs);
@@ -268,5 +268,16 @@ impl Inode {
             Err(msg) => Err(msg),
             Ok(_) => Ok(()),
         }
+    }
+
+    fn swap_remove_back(&self,index: usize,length: usize,disk_inode: &mut DiskInode){
+        if length > 1 {
+            let mut buf = DirEntry::empty();
+            if (length - 1) != index {
+                disk_inode.read_at((length-1) * DIRENT_SZ, buf.as_bytes_mut(), &self.block_device);
+            }
+            disk_inode.write_at(index * DIRENT_SZ, buf.as_bytes(), &self.block_device);
+        }
+        disk_inode.size -= DIRENT_SZ as u32;
     }
 }
