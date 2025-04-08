@@ -2,6 +2,8 @@
 
 #[allow(unused)]
 
+/// process availble type number
+pub const AVAILABLE_TYPE_NUMBER : usize =2;
 /// user app's stack size
 pub const USER_STACK_SIZE: usize = 4096 * 2;
 /// kernel stack size

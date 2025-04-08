@@ -37,10 +37,13 @@ pub fn sys_thread_create(entry: usize, arg: usize) -> isize {
     let mut process_inner = process.inner_exclusive_access();
     // add new thread to current process
     let tasks = &mut process_inner.tasks;
-    while tasks.len() < new_task_tid + 1 {
+    
+    while tasks.len()<new_task_tid + 1 {
         tasks.push(None);
     }
     tasks[new_task_tid] = Some(Arc::clone(&new_task));
+    process_inner.thread_create(new_task_tid);
+    
     let new_task_trap_cx = new_task_inner.get_trap_cx();
     *new_task_trap_cx = TrapContext::app_init_context(
         entry,

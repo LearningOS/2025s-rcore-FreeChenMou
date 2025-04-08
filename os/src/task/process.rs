@@ -15,6 +15,9 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefMut;
 
+/// process availble type number
+const AVAILABLE_TYPE_NUMBER: usize = 2;
+
 /// Process Control Block
 pub struct ProcessControlBlock {
     /// immutable
@@ -49,6 +52,14 @@ pub struct ProcessControlBlockInner {
     pub semaphore_list: Vec<Option<Arc<Semaphore>>>,
     /// condvar list
     pub condvar_list: Vec<Option<Arc<Condvar>>>,
+    /// enabled deadlock detect
+    pub deadlock_detect: bool,
+    /// need martix
+    pub allocation: Vec<Vec<Vec<usize>>>,
+    /// need martix
+    pub need: Vec<Vec<Vec<usize>>>,
+    /// Available martix
+    pub available: Vec<Vec<usize>>,
 }
 
 impl ProcessControlBlockInner {
@@ -81,6 +92,83 @@ impl ProcessControlBlockInner {
     /// get a task with tid in this process
     pub fn get_task(&self, tid: usize) -> Arc<TaskControlBlock> {
         self.tasks[tid].as_ref().unwrap().clone()
+    }
+
+    /// push need and allocation martix for thread
+    pub fn thread_create(&mut self,tid : usize) {
+        let mutex_list_len = self.mutex_list.len();
+        let semaphore_list_len = self.semaphore_list.len();
+        self.allocation.push(vec![vec![]; 2]);
+        self.need.push(vec![vec![]; 2]);
+        self.allocation[tid][0] = vec![0; mutex_list_len];
+        self.allocation[tid][1] = vec![0; semaphore_list_len];
+
+        self.need[tid][0] = vec![0; mutex_list_len];
+        self.need[tid][1] = vec![0; semaphore_list_len];
+    }
+    /// deadlock detect
+    pub fn deadlock_detect(&mut self, tid: usize, index: usize, op_index: usize) -> bool {
+        let n = self.need.len();
+        let mut count = 0;
+        self.need[tid][index][op_index] += 1;
+        let (mut visit, mut work) = (vec![false; n], self.available[index].clone());
+
+        for i in 0..n {
+            if !visit[i] {
+                self.dfs(&mut work, i, n, &mut count, &mut visit, index);
+            }
+        }
+
+        let flag = if count == n {
+            if self.available[index][op_index] > 0 {
+                self.allocation[tid][index][op_index] += 1;
+                self.need[tid][index][op_index] -= 1;
+                self.available[index][op_index] -= 1;
+            }
+            true
+        } else {
+            self.need[tid][index][op_index] -= 1;
+            false
+        };
+
+        flag
+    }
+    /// recover thread allocation and available
+    pub fn recover(&mut self, tid: usize, index: usize, op_index: usize) {
+        self.allocation[tid][index][op_index] -= 1;
+        self.available[index][op_index] += 1;
+    }
+
+    /// dfs detect pass thread number
+    pub fn dfs(
+        &self,
+        work: &mut Vec<usize>,
+        tid: usize,
+        length: usize,
+        count: &mut usize,
+        visit: &mut Vec<bool>,
+        index: usize,
+    ) {
+        let mut flag = true;
+        for i in 0..self.need[tid][index].len() {
+            if self.need[tid][index][i] > work[i] {
+                flag = false;
+                break;
+            }
+        }
+
+        if flag {
+            visit[tid] = true;
+            *count += 1;
+            for i in 0..self.need[tid][index].len() {
+                work[i] += self.allocation[tid][index][i];
+            }
+            for i in 0..length {
+                if !visit[i] {
+                    self.dfs(work, i, length, count, visit, index);
+                }
+            }
+        }
     }
 }
 
@@ -119,6 +207,10 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    deadlock_detect: false,
+                    allocation: vec![vec![vec![]; AVAILABLE_TYPE_NUMBER]],
+                    need: vec![vec![vec![]; AVAILABLE_TYPE_NUMBER]],
+                    available: vec![vec![]; AVAILABLE_TYPE_NUMBER],
                 })
             },
         });
@@ -245,6 +337,10 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    deadlock_detect: parent.deadlock_detect.clone(),
+                    allocation: parent.allocation.clone(),
+                    need: parent.need.clone(),
+                    available: parent.available.clone(),
                 })
             },
         });
@@ -281,5 +377,15 @@ impl ProcessControlBlock {
     /// get pid
     pub fn getpid(&self) -> usize {
         self.pid.0
+    }
+    /// set deadlock detect
+    pub fn set_deadlock_detect(&self, enabled: usize) -> bool {
+        if enabled > 1 {
+            return false;
+        }
+        let mut inner = self.inner.exclusive_access();
+        inner.deadlock_detect = if enabled == 1 { true } else { false };
+
+        true
     }
 }

@@ -12,7 +12,7 @@
 mod context;
 mod id;
 mod manager;
-mod process;
+pub(crate) mod process;
 mod processor;
 mod signal;
 mod switch;
@@ -203,4 +203,14 @@ pub fn remove_inactive_task(task: Arc<TaskControlBlock>) {
     remove_task(Arc::clone(&task));
     trace!("kernel: remove_inactive_task .. remove_timer");
     remove_timer(Arc::clone(&task));
+}
+/// get tid
+pub fn gettid() -> usize {
+    current_task()
+        .unwrap()
+        .inner_exclusive_access()
+        .res
+        .as_ref()
+        .unwrap()
+        .tid
 }
